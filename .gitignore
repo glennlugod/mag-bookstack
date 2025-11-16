@@ -8,3 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+bookstack_data/
+db_data/
