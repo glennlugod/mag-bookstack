@@ -13,6 +13,10 @@ A demonstration application showcasing an **AI agent built with LangGraph** that
 - **Docker Compose**: Pre-configured BookStack environment with MariaDB
 - **Chroma Vector Store**: Persistent vector database for embeddings
 
+## Demo
+
+Watch a walkthrough of the AI agent in action: [Demo Video on YouTube](https://youtu.be/RWywpa32NK4)
+
 ## Architecture
 
 ```
