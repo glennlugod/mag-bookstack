@@ -48,6 +48,8 @@ from langchain_google_genai import GoogleGenerativeAI, GoogleGenerativeAIEmbeddi
 # LangGraph imports
 from langgraph.graph import StateGraph
 from langgraph.runtime import Runtime
+from chromadb.errors import InternalError as ChromaInternalError
+from chromadb.errors import InvalidArgumentError as ChromaInvalidArgumentError
 
 load_dotenv()
 
@@ -107,7 +109,18 @@ def build_langgraph_rag_agent(persist_dir: str, collection_name: str, top_k: int
     if not llm_model:
         raise ValueError('`llm_model` is required. Provide via argument or set GOOGLE_LLM_MODEL in .env')
 
+    # Build vector store and compute expected embedding size
     vectordb = build_vector_store(persist_dir, collection_name, embedding_model=embedding_model)
+    # Determine expected embedding dimension by calling embedding function
+    try:
+        ef = getattr(vectordb, 'embedding_function', None) or getattr(vectordb, '_embedding_function', None)
+        if ef and hasattr(ef, 'embed_query'):
+            test_vec = ef.embed_query('test')
+            expected_embedding_dim = len(test_vec)
+        else:
+            expected_embedding_dim = None
+    except Exception:
+        expected_embedding_dim = None
 
     # llm_model is required now; instantiate or warn if creation fails
     # Provide a dummy LLM for local testing if the special name 'dummy' is provided
@@ -188,20 +201,79 @@ def build_langgraph_rag_agent(persist_dir: str, collection_name: str, top_k: int
         def __init__(self, compiled_graph):
             self.compiled = compiled_graph
             self.store = vectordb
+            self.expected_embedding_dim = expected_embedding_dim
 
         def invoke(self, query: str):
             return self.compiled.invoke({'query': query})
 
         def similarity_search(self, query: str, k: int = 3):
             # For direct access to vectordb retrieval without running the graph
-            if hasattr(self.store, 'similarity_search'):
-                return self.store.similarity_search(query, k=k)
-            elif hasattr(self.store, 'get_all'):
-                return self.store.get_all()
-            else:
-                return []
+            try:
+                if hasattr(self.store, 'similarity_search'):
+                    # sanity-check: if we can determine the collection embedding dim, compare
+                    diag = diagnose_collection(self.store)
+                    stored_dim = diag.get('embedding_dim')
+                    if stored_dim and self.expected_embedding_dim and stored_dim != self.expected_embedding_dim:
+                        raise RuntimeError(
+                            f"Embedding dimension mismatch: collection '{diag.get('collection_name')}' stores vectors of length {stored_dim} but the current embedding model produces length {self.expected_embedding_dim}.\n" +
+                            "You should reindex your collection with the matching embedding model or use the same embedding (set GOOGLE_EMBEDDING_MODEL) when querying."
+                        )
+                    return self.store.similarity_search(query, k=k)
+                elif hasattr(self.store, 'get_all'):
+                    return self.store.get_all()
+                else:
+                    return []
+            except ChromaInternalError as e:
+                # Re-throw a helpful error with diagnostics
+                diag = diagnose_collection(self.store)
+                raise RuntimeError(
+                    'Chroma internal error while running similarity search: {}\nCollection diagnostics: {}\n' .format(e, diag)
+                ) from e
+            except ChromaInvalidArgumentError as e:
+                diag = diagnose_collection(self.store)
+                raise RuntimeError(
+                    'Chroma invalid argument while running similarity search: {}\nCollection diagnostics: {}\n' .format(e, diag)
+                ) from e
 
     return AgentWrapper(compiled)
+
+
+def diagnose_collection(vectordb):
+    """Return small diagnostic info about a Chroma collection/state for errors.
+
+    This tries multiple known attributes safely to avoid causing further errors.
+    """
+    info = {}
+    try:
+        client = getattr(vectordb, 'client', None) or getattr(vectordb, '_client', None)
+        collection_name = getattr(vectordb, 'collection_name', None) or getattr(vectordb, '_collection_name', None)
+        if client and collection_name:
+            try:
+                col = client.get_collection(collection_name)
+                info['count'] = getattr(col, 'count', lambda: 'unknown')()
+                # some versions may expose `metadata` or `properties`
+                info['has_metadata'] = hasattr(col, 'metadata')
+                info['collection_name'] = collection_name
+                # attempt to fetch a sample embedding and report its length
+                try:
+                    sample_res = col.get(include=['embeddings'], limit=1)
+                    if isinstance(sample_res, dict):
+                        embeddings = sample_res.get('embeddings') or []
+                    else:
+                        # older clients may return a more structured object
+                        embeddings = getattr(sample_res, 'embeddings', [])
+                    if embeddings:
+                        emb0 = embeddings[0]
+                        info['embedding_dim'] = len(emb0)
+                except Exception as ee:
+                    info['embedding_fetch_error'] = str(ee)
+            except Exception as e:
+                info['get_collection_error'] = str(e)
+        else:
+            info['message'] = 'Client or collection name not available on vectordb'
+    except Exception as e:
+        info['diagnose_error'] = str(e)
+    return info
 
 
 def main():

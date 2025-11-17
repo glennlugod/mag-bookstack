@@ -383,10 +383,10 @@ def main():
     if args.force_reindex:
         logging.info('Force reindex requested; attempting to clear existing collection: %s', collection_final)
         try:
-            # Prefer client.delete_collection if available (Chroma client)
-            client = getattr(vectordb, 'client', getattr(vectordb, '_client', None))
-            if client and hasattr(client, 'delete_collection'):
-                client.delete_collection(collection_final)
+            # Prefer vectordb.client.delete_collection if available (Chroma client)
+            chroma_client = getattr(vectordb, 'client', getattr(vectordb, '_client', None))
+            if chroma_client and hasattr(chroma_client, 'delete_collection'):
+                chroma_client.delete_collection(collection_final)
                 logging.info('Deleted collection via client.delete_collection: %s', collection_final)
             else:
                 # try the collection object delete method
