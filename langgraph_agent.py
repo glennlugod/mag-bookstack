@@ -178,7 +178,7 @@ def build_langgraph_rag_agent(persist_dir: str, collection_name: str, top_k: int
         context = '\n\n'.join([f"{d.get('metadata', {}).get('page_name', '')}: {d.get('text', '')}" for d in docs])
         prompt = f"Use the following context extracted from BookStack docs:\n\n{context}\n\nQuestion: {q}\nAnswer:"
         try:
-            out = llm(prompt)
+            out = llm.invoke(prompt)
             # `GoogleGenerativeAI` wrapper returns a string or Document-like; coerce to str
             return {'answer': str(out)}
         except Exception as e:
