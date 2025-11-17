@@ -317,6 +317,7 @@ def main():
     parser.add_argument('--google-embedding-model', default=None, help='Optional embedding model name (provider-specific)')
     parser.add_argument('--limit', type=int, default=0, help='Optional: limit number of pages processed (0 = no limit)')
     parser.add_argument('--sample', action='store_true', help='Create and embed sample pages (no BookStack connection)')
+    parser.add_argument('--force-reindex', action='store_true', help='Clear any existing vectors in the collection before embedding')
     parser.add_argument('--no-persist', action='store_true', help='If set, do not persist Chroma DB (useful for testing)')
     args = parser.parse_args()
 
@@ -342,6 +343,36 @@ def main():
     except Exception as e:
         logging.error('Failed to create vector store: %s', e)
         raise
+
+    # If the user requested a full reindex, try to clear the collection safely
+    if args.force_reindex:
+        logging.info('Force reindex requested; attempting to clear existing collection: %s', collection_final)
+        try:
+            # Prefer client.delete_collection if available (Chroma client)
+            client = getattr(vectordb, 'client', getattr(vectordb, '_client', None))
+            if client and hasattr(client, 'delete_collection'):
+                client.delete_collection(collection_final)
+                logging.info('Deleted collection via client.delete_collection: %s', collection_final)
+            else:
+                # try the collection object delete method
+                col = getattr(vectordb, '_collection', None)
+                if col and hasattr(col, 'delete'):
+                    col.delete()
+                    logging.info('Cleared entries in collection via collection.delete')
+                else:
+                    logging.warning('Could not find client.delete_collection or collection.delete to clear data; attempting to re-create an empty collection by reinitializing vectordb and removing persistence directory')
+                    # fallback to deleting disk persist dir if present
+                    if persist_dir_final:
+                        import shutil
+                        try:
+                            shutil.rmtree(persist_dir_final)
+                            logging.info('Removed persist directory: %s', persist_dir_final)
+                        except Exception as e:
+                            logging.warning('Failed to remove persist directory: %s', e)
+            # Recreate vectordb to ensure it points to fresh collection
+            vectordb = build_vector_store(persist_dir_final, collection_final, embedding_model=embedding_model, use_dummy=args.sample)
+        except Exception as e:
+            logging.warning('Force reindex attempted but failed: %s', e)
 
     logging.info('Embedding pages now...')
     if args.sample:

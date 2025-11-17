@@ -177,6 +177,9 @@ If you're unable to change the Python version on your machine or prefer to conti
 - `--limit` to run only a small subset of pages and validate behavior (useful for testing)
 - `--no-persist` to skip persisting the vector DB when running tests
 
+- `--force-reindex` will clear an existing Chroma collection (or its entries) before embedding. Useful if you want to rebuild the index from scratch.
+  - When used with `--sample` the sample collection is cleared as well; when using a persistent `--persist-dir`, the shared collection will be cleared or overwritten depending on the environment.
+
 Notes:
 - Metadata values that are None will be filtered out before upserting into Chroma (required by Chroma's metadata validation).
 
