@@ -69,3 +69,70 @@ Notes
 -----
 - The script attempts multiple token header formats to discover the one your BookStack instance uses. If it fails, double-check your token ID/secret and BookStack version.
 - If you prefer, you can craft JSON input to create more detailed structure.
+
+Embedding BookStack content (RAG)
+--------------------------------
+You can generate embeddings for all pages in your BookStack instance and store them in a local Chroma vector DB using the `embed_bookstack.py` script.
+
+Quick start (install dependencies, then run with your BookStack API token):
+
+Using `uv` (recommended):
+
+```bash
+# Install dependencies and lock for the script
+uv add --script scripts/embed_bookstack.py 'requests>=2.28' 'beautifulsoup4>=4.12' 'langchain>=0.0.318' 'chromadb>=0.3.38' 'tqdm>=4.65' 'langchain-google-genai>=0.1.0'
+uv lock --script scripts/embed_bookstack.py
+
+# Run the script in an isolated temporary environment using the locked deps
+uv run --script scripts/embed_bookstack.py -- --token-id <ID> --token-secret <SECRET> --url http://localhost:6875 \
+  --persist-dir ./chroma_db --collection bookstack_pages
+```
+
+Alternatively, without `uv`:
+
+```bash
+python3 -m pip install -r scripts/requirements.txt
+python3 scripts/embed_bookstack.py --token-id <ID> --token-secret <SECRET> --url http://localhost:6875 \
+  --persist-dir ./chroma_db --collection bookstack_pages
+```
+
+- `GOOGLE_API_KEY` or application credentials must be available in the environment for Google Generative AI embedding usage
+- `--google-embedding-model` can be set to choose a particular embedding model supported by LangChain’s GoogleGenerativeAIEmbeddings wrapper (optional)
+Important env vars / configuration:
+- `GOOGLE_API_KEY` or application credentials must be available in the environment for Google Generative AI embedding usage
+- `--google-embedding-model` can be set to choose a particular embedding model supported by LangChain’s GoogleGenerativeAIEmbeddings wrapper (optional)
+
+Compatibility note:
+- Some packages (or transitive dependencies like `pypika`) may not be compatible with very new Python versions such as Python 3.14.
+  The script is constrained to Python >=3.12 and <3.14 so `uv` will attempt to use a Python 3.12 or 3.13 runtime by default to avoid build issues.
+  If `uv lock --script scripts/embed_bookstack.py` still fails during build, try adjusting the pinned package versions or running under a supported Python version.
+
+How to run `uv lock` if you have Python 3.14 by default:
+
+- Option 1: Use `pyenv` or `asdf` to install and select a local Python version (3.12 or 3.13), for example with `pyenv`:
+
+```bash
+# Install Python 3.13 (if not installed) and set local project version
+pyenv install 3.13.10
+pyenv local 3.13.10
+uv lock --script scripts/embed_bookstack.py
+```
+
+- Option 2: Create a dedicated virtualenv using a compatible interpreter and run `uv` from inside it:
+
+```bash
+python3.13 -m venv .venv
+source .venv/bin/activate
+uv lock --script scripts/embed_bookstack.py
+```
+
+If you're unable to change the Python version on your machine or prefer to continue with Python 3.14, consider passing a compatible `chromadb` and `pypika` version in `scripts/requirements.txt`, but note that this can require careful dependency resolution.
+- `GOOGLE_API_KEY` or application credentials must be available in the environment for Google Generative AI embedding usage
+- `--google-embedding-model` can be set to choose a particular embedding model supported by LangChain’s GoogleGenerativeAIEmbeddings wrapper (optional)
+
+- `--limit` to run only a small subset of pages and validate behavior (useful for testing)
+- `--no-persist` to skip persisting the vector DB when running tests
+
+Outputs:
+- Embeddings are persisted into `--persist-dir` in a Chroma collection named `--collection`
+
