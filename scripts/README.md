@@ -89,6 +89,31 @@ uv run --script scripts/embed_bookstack.py -- --token-id <ID> --token-secret <SE
   --persist-dir ./chroma_db --collection bookstack_pages
 ```
 
+Sample mode (CI / testing)
+-------------------------
+The script supports a `--sample` mode which creates a small set of example pages and embeds them using an internal, deterministic embedding function (no external APIs required).
+
+Behavior:
+- `--sample --no-persist`: runs using an in-memory Chroma instance (does not write to disk).
+- `--sample` with a `--persist-dir`: stores the sample vectors in the specified directory under a new collection named `<collection>_sample` (e.g., `bookstack_pages_sample`).
+
+Example (in-memory):
+```bash
+uv run --script scripts/embed_bookstack.py -- --sample --no-persist --limit 2
+```
+
+Example (persisted):
+```bash
+uv run --script scripts/embed_bookstack.py -- --sample --persist-dir ./chroma_db --collection bookstack_pages
+# This writes to collection bookstack_pages_sample in ./chroma_db
+```
+
+Query the sample collection:
+
+```bash
+uv run --script scripts/query_bookstack.py -- --query "Installation steps" --persist-dir ./chroma_db --collection bookstack_pages_sample --no-gen
+```
+
 Alternatively, without `uv`:
 
 ```bash

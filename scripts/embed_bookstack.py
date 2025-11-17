@@ -172,20 +172,38 @@ def html_to_text(html: str) -> str:
     return '\n'.join(lines)
 
 
-def build_vector_store(persist_dir: str, collection_name: str, embedding_model: Optional[str] = None):
+def build_vector_store(persist_dir: str, collection_name: str, embedding_model: Optional[str] = None, use_dummy: bool = False):
     # create embeddings - GoogleGenerativeAIEmbeddings likely uses environment credentials
     kwargs = {}
     # If embedding_model not provided, try env var, then default
     if not embedding_model:
         embedding_model = os.environ.get('GOOGLE_EMBEDDING_MODEL') or 'embed-text-embedding-3'
         logging.info('No embedding model provided, defaulting to: %s', embedding_model)
-    kwargs['model'] = embedding_model
-    try:
-        embeddings = GoogleGenerativeAIEmbeddings(**kwargs)
-    except Exception as e:
-        logging.error("Failed to initialize GoogleGenerativeAIEmbeddings: %s", e)
-        logging.error("Ensure your model name is valid and GOOGLE_API_KEY credentials are present. Try setting --google-embedding-model or env var GOOGLE_EMBEDDING_MODEL.")
-        raise
+    if use_dummy:
+        # Use a deterministic, lightweight embedding provider for tests/CI.
+        class DummyEmbeddingsLocal:
+            def __init__(self, dim: int = 16):
+                self.dim = dim
+
+            def _vector_from_text(self, text: str):
+                s = sum(ord(c) for c in text)
+                return [float(((s + i * 31) % 1000)) / 1000.0 for i in range(self.dim)]
+
+            def embed_documents(self, texts: List[str]) -> List[List[float]]:
+                return [self._vector_from_text(t) for t in texts]
+
+            def embed_query(self, text: str) -> List[float]:
+                return self._vector_from_text(text)
+
+        embeddings = DummyEmbeddingsLocal(dim=16)
+    else:
+        kwargs['model'] = embedding_model
+        try:
+            embeddings = GoogleGenerativeAIEmbeddings(**kwargs)
+        except Exception as e:
+            logging.error("Failed to initialize GoogleGenerativeAIEmbeddings: %s", e)
+            logging.error("Ensure your model name is valid and GOOGLE_API_KEY credentials are present. Try setting --google-embedding-model or env var GOOGLE_EMBEDDING_MODEL.")
+            raise
     vectordb = Chroma(persist_directory=persist_dir, collection_name=collection_name, embedding_function=embeddings)
     return vectordb
 
@@ -243,6 +261,49 @@ def embed_pages(client: BookStackClient, vectordb: Chroma, text_splitter: Recurs
             break
 
 
+def embed_sample_pages(vectordb: Chroma, text_splitter: RecursiveCharacterTextSplitter):
+    logging.info('Embedding sample pages (no BookStack connection)')
+    sample_pages = [
+        {
+            'page_id': 1,
+            'page_name': 'Overview',
+            'book_id': 1,
+            'book_name': 'Sample Book',
+            'html': '<p>This is an overview page for sample docs in BookStack.</p>'
+        },
+        {
+            'page_id': 2,
+            'page_name': 'Installation',
+            'book_id': 1,
+            'book_name': 'Sample Book',
+            'html': '<p>Installation steps: run the installer and configure.</p>'
+        },
+    ]
+
+    docs: List[Document] = []
+    for pg in sample_pages:
+        text = html_to_text(pg['html'])
+        chunks = text_splitter.split_text(text)
+        for i, chunk in enumerate(chunks):
+            meta = {
+                'book_id': pg['book_id'],
+                'book_name': pg['book_name'],
+                'page_id': pg['page_id'],
+                'page_name': pg['page_name'],
+                'page_url': None,
+                'chunk_index': i,
+            }
+            filtered_meta = {k: v for k, v in meta.items() if v is not None}
+            docs.append(Document(page_content=chunk, metadata=filtered_meta))
+
+    if not docs:
+        logging.info('No sample docs to embed')
+        return
+
+    vectordb.add_documents(docs)
+    logging.info('Added %s sample chunks', len(docs))
+
+
 def main():
     parser = argparse.ArgumentParser(description='Embed BookStack pages with LangChain (GoogleGenerativeAIEmbeddings) and Chroma')
     parser.add_argument('--url', default='http://localhost:6875', help='Base URL of BookStack instance')
@@ -255,6 +316,7 @@ def main():
     parser.add_argument('--chunk-overlap', type=int, default=200, help='Chunk overlap for text splitting')
     parser.add_argument('--google-embedding-model', default=None, help='Optional embedding model name (provider-specific)')
     parser.add_argument('--limit', type=int, default=0, help='Optional: limit number of pages processed (0 = no limit)')
+    parser.add_argument('--sample', action='store_true', help='Create and embed sample pages (no BookStack connection)')
     parser.add_argument('--no-persist', action='store_true', help='If set, do not persist Chroma DB (useful for testing)')
     args = parser.parse_args()
 
@@ -263,21 +325,32 @@ def main():
     token_id = args.token_id or os.environ.get('BOOKSTACK_TOKEN_ID')
     token_secret = args.token_secret or os.environ.get('BOOKSTACK_TOKEN_SECRET')
     url = args.url or os.environ.get('BOOKSTACK_URL') or 'http://localhost:6875'
-    if not token_id or not token_secret:
-        logging.error('Missing BookStack API credentials: pass --token-id and --token-secret or set BOOKSTACK_TOKEN_ID and BOOKSTACK_TOKEN_SECRET in env')
-        sys.exit(1)
-    client = BookStackClient(url, token_id, token_secret, header_format=args.header_format)
+    client = None
+    if not args.sample:
+        if not token_id or not token_secret:
+            logging.error('Missing BookStack API credentials: pass --token-id and --token-secret or set BOOKSTACK_TOKEN_ID and BOOKSTACK_TOKEN_SECRET in env')
+            sys.exit(1)
+        client = BookStackClient(url, token_id, token_secret, header_format=args.header_format)
 
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=args.chunk_size, chunk_overlap=args.chunk_overlap)
     embedding_model = args.google_embedding_model or os.environ.get('GOOGLE_EMBEDDING_MODEL')
+    # If running sample mode without persisting, use in-memory Chroma (persist_directory=None)
+    persist_dir_final = None if (args.sample and args.no_persist) else args.persist_dir
+    collection_final = args.collection + '_sample' if args.sample and not args.no_persist else args.collection
     try:
-        vectordb = build_vector_store(args.persist_dir, args.collection, embedding_model=embedding_model)
+        vectordb = build_vector_store(persist_dir_final, collection_final, embedding_model=embedding_model, use_dummy=args.sample)
     except Exception as e:
         logging.error('Failed to create vector store: %s', e)
         raise
 
     logging.info('Embedding pages now...')
-    embed_pages(client, vectordb, text_splitter, page_limit=args.limit)
+    if args.sample:
+        embed_sample_pages(vectordb, text_splitter)
+    else:
+        if client is None:
+            logging.error('No BookStack client available; cannot embed pages. Use --sample to run sample mode without BookStack.')
+            sys.exit(1)
+        embed_pages(client, vectordb, text_splitter, page_limit=args.limit)
     # Persist to disk (Chroma will persist directory automatically)
     if not args.no_persist:
         try:
@@ -285,7 +358,7 @@ def main():
         except Exception:
             # some versions of LangChain/Chroma call this automatically or don't expose
             pass
-    logging.info('Complete. Vectors stored in %s (collection: %s)', args.persist_dir, args.collection)
+    logging.info('Complete. Vectors stored in %s (collection: %s)', persist_dir_final or 'in-memory', collection_final)
 
 
 if __name__ == '__main__':
