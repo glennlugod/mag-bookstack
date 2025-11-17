@@ -1,1 +1,6 @@
-requests>=2.28
+requests
+langchain
+chromadb
+beautifulsoup4
+tqdm
+langchain-google-genai
