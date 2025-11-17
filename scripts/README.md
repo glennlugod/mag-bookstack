@@ -81,7 +81,7 @@ Using `uv` (recommended):
 ```bash
 # Install dependencies and lock for the script
 # uv add --script scripts/embed_bookstack.py 'requests>=2.28' 'beautifulsoup4>=4.12' 'langchain>=0.0.318' 'chromadb>=0.3.38' 'tqdm>=4.65' 'langchain-google-genai>=0.1.0'
-uv add --script scripts/embed_bookstack.py 'requests' 'beautifulsoup4' 'langchain' 'chromadb' 'tqdm' 'langchain-google-genai' 'langchain_community'
+uv add --script scripts/embed_bookstack.py 'requests' 'beautifulsoup4' 'langchain' 'chromadb' 'tqdm' 'langchain-google-genai' 'langchain-chroma' 'python-dotenv'
 uv lock --script scripts/embed_bookstack.py
 
 # Run the script in an isolated temporary environment using the locked deps
@@ -151,6 +151,9 @@ If you're unable to change the Python version on your machine or prefer to conti
 
 - `--limit` to run only a small subset of pages and validate behavior (useful for testing)
 - `--no-persist` to skip persisting the vector DB when running tests
+
+Notes:
+- Metadata values that are None will be filtered out before upserting into Chroma (required by Chroma's metadata validation).
 
 Outputs:
 - Embeddings are persisted into `--persist-dir` in a Chroma collection named `--collection`

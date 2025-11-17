@@ -11,5 +11,5 @@ wheels/
 
 bookstack_data/
 db_data/
+chroma_db/
 .env
-chroma_db/chroma.sqlite3

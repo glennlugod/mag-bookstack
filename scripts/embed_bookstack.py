@@ -9,7 +9,7 @@
 #   "tqdm",
 #   "langchain-google-genai",
 #   "python-dotenv",
-#   "langchain-community>=0.3.13",
+#   "langchain-chroma>=0.0.6",
 # ]
 # [tool.uv]
 # exclude-newer = "2025-01-01T00:00:00Z"
@@ -46,7 +46,7 @@ from tqdm import tqdm
 try:
     from langchain_google_genai import GoogleGenerativeAIEmbeddings
     from langchain.text_splitter import RecursiveCharacterTextSplitter
-    from langchain_community.vectorstores import Chroma
+    from langchain_chroma import Chroma
     from langchain.schema import Document
 except Exception:  # pragma: no cover - helpful messaging if packages are missing
     print("Missing required packages. Install requirements from scripts/requirements.txt")
@@ -228,12 +228,15 @@ def embed_pages(client: BookStackClient, vectordb: Chroma, text_splitter: Recurs
                 'page_url': page_url,
                 'chunk_index': i,
             }
-            docs.append(Document(page_content=chunk, metadata=meta))
+            # Filter out None values because Chroma expects primitive types only
+            filtered_meta = {k: v for k, v in meta.items() if v is not None}
+            docs.append(Document(page_content=chunk, metadata=filtered_meta))
 
         if not docs:
             continue
         # Upsert into Chroma
         vectordb.add_documents(docs)
+        logging.info('Added %s chunks for page id %s', len(docs), page_id)
         processed += 1
         if page_limit and processed >= page_limit:
             logging.info('Reached page limit %s; stopping early', page_limit)
