@@ -4,3 +4,4 @@ chromadb
 beautifulsoup4
 tqdm
 langchain-google-genai
+python-dotenv>=1.0.0

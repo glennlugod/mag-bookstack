@@ -8,6 +8,8 @@
 #   "chromadb",
 #   "tqdm",
 #   "langchain-google-genai",
+#   "python-dotenv",
+#   "langchain-community>=0.3.13",
 # ]
 # [tool.uv]
 # exclude-newer = "2025-01-01T00:00:00Z"
@@ -33,19 +35,25 @@ import argparse
 import logging
 from dataclasses import dataclass
 from typing import Dict, List, Optional
+import os
+from dotenv import load_dotenv
+import sys
 
 import requests
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 
 try:
-    from langchain.embeddings import GoogleGenerativeAIEmbeddings
+    from langchain_google_genai import GoogleGenerativeAIEmbeddings
     from langchain.text_splitter import RecursiveCharacterTextSplitter
-    from langchain.vectorstores import Chroma
+    from langchain_community.vectorstores import Chroma
     from langchain.schema import Document
 except Exception:  # pragma: no cover - helpful messaging if packages are missing
     print("Missing required packages. Install requirements from scripts/requirements.txt")
     raise
+
+# Load environment variables from .env at repo root (if present)
+load_dotenv()
 
 
 @dataclass
@@ -167,9 +175,17 @@ def html_to_text(html: str) -> str:
 def build_vector_store(persist_dir: str, collection_name: str, embedding_model: Optional[str] = None):
     # create embeddings - GoogleGenerativeAIEmbeddings likely uses environment credentials
     kwargs = {}
-    if embedding_model:
-        kwargs['model'] = embedding_model
-    embeddings = GoogleGenerativeAIEmbeddings(**kwargs)
+    # If embedding_model not provided, try env var, then default
+    if not embedding_model:
+        embedding_model = os.environ.get('GOOGLE_EMBEDDING_MODEL') or 'embed-text-embedding-3'
+        logging.info('No embedding model provided, defaulting to: %s', embedding_model)
+    kwargs['model'] = embedding_model
+    try:
+        embeddings = GoogleGenerativeAIEmbeddings(**kwargs)
+    except Exception as e:
+        logging.error("Failed to initialize GoogleGenerativeAIEmbeddings: %s", e)
+        logging.error("Ensure your model name is valid and GOOGLE_API_KEY credentials are present. Try setting --google-embedding-model or env var GOOGLE_EMBEDDING_MODEL.")
+        raise
     vectordb = Chroma(persist_directory=persist_dir, collection_name=collection_name, embedding_function=embeddings)
     return vectordb
 
@@ -227,8 +243,8 @@ def embed_pages(client: BookStackClient, vectordb: Chroma, text_splitter: Recurs
 def main():
     parser = argparse.ArgumentParser(description='Embed BookStack pages with LangChain (GoogleGenerativeAIEmbeddings) and Chroma')
     parser.add_argument('--url', default='http://localhost:6875', help='Base URL of BookStack instance')
-    parser.add_argument('--token-id', required=True, help='API token ID')
-    parser.add_argument('--token-secret', required=True, help='API token secret')
+    parser.add_argument('--token-id', required=False, help='API token ID (falls back to BOOKSTACK_TOKEN_ID env var)')
+    parser.add_argument('--token-secret', required=False, help='API token secret (falls back to BOOKSTACK_TOKEN_SECRET env var)')
     parser.add_argument('--header-format', help='Optional: force token header format (token, token_named, x-auth, bearer)')
     parser.add_argument('--persist-dir', default='./chroma_db', help='Chroma persist directory')
     parser.add_argument('--collection', default='bookstack_pages', help='Chroma collection name')
@@ -240,10 +256,22 @@ def main():
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(message)s')
-    client = BookStackClient(args.url, args.token_id, args.token_secret, header_format=args.header_format)
+    # Allow tokens/url to be supplied via environment variables (.env loaded above)
+    token_id = args.token_id or os.environ.get('BOOKSTACK_TOKEN_ID')
+    token_secret = args.token_secret or os.environ.get('BOOKSTACK_TOKEN_SECRET')
+    url = args.url or os.environ.get('BOOKSTACK_URL') or 'http://localhost:6875'
+    if not token_id or not token_secret:
+        logging.error('Missing BookStack API credentials: pass --token-id and --token-secret or set BOOKSTACK_TOKEN_ID and BOOKSTACK_TOKEN_SECRET in env')
+        sys.exit(1)
+    client = BookStackClient(url, token_id, token_secret, header_format=args.header_format)
 
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=args.chunk_size, chunk_overlap=args.chunk_overlap)
-    vectordb = build_vector_store(args.persist_dir, args.collection, embedding_model=args.google_embedding_model)
+    embedding_model = args.google_embedding_model or os.environ.get('GOOGLE_EMBEDDING_MODEL')
+    try:
+        vectordb = build_vector_store(args.persist_dir, args.collection, embedding_model=embedding_model)
+    except Exception as e:
+        logging.error('Failed to create vector store: %s', e)
+        raise
 
     logging.info('Embedding pages now...')
     embed_pages(client, vectordb, text_splitter, page_limit=args.limit)

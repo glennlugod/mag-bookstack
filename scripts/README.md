@@ -80,7 +80,8 @@ Using `uv` (recommended):
 
 ```bash
 # Install dependencies and lock for the script
-uv add --script scripts/embed_bookstack.py 'requests>=2.28' 'beautifulsoup4>=4.12' 'langchain>=0.0.318' 'chromadb>=0.3.38' 'tqdm>=4.65' 'langchain-google-genai>=0.1.0'
+# uv add --script scripts/embed_bookstack.py 'requests>=2.28' 'beautifulsoup4>=4.12' 'langchain>=0.0.318' 'chromadb>=0.3.38' 'tqdm>=4.65' 'langchain-google-genai>=0.1.0'
+uv add --script scripts/embed_bookstack.py 'requests' 'beautifulsoup4' 'langchain' 'chromadb' 'tqdm' 'langchain-google-genai' 'langchain_community'
 uv lock --script scripts/embed_bookstack.py
 
 # Run the script in an isolated temporary environment using the locked deps
@@ -98,9 +99,27 @@ python3 scripts/embed_bookstack.py --token-id <ID> --token-secret <SECRET> --url
 
 - `GOOGLE_API_KEY` or application credentials must be available in the environment for Google Generative AI embedding usage
 - `--google-embedding-model` can be set to choose a particular embedding model supported by LangChain’s GoogleGenerativeAIEmbeddings wrapper (optional)
+  - If not provided, the script will look at the `GOOGLE_EMBEDDING_MODEL` environment variable and fallback to `embed-text-embedding-3` as a default.
 Important env vars / configuration:
 - `GOOGLE_API_KEY` or application credentials must be available in the environment for Google Generative AI embedding usage
 - `--google-embedding-model` can be set to choose a particular embedding model supported by LangChain’s GoogleGenerativeAIEmbeddings wrapper (optional)
+  - If not provided, the script will look at the `GOOGLE_EMBEDDING_MODEL` environment variable and fallback to `embed-text-embedding-3` as a default.
+- The script can read `.env` from repository root; available env vars:
+  - `BOOKSTACK_TOKEN_ID`
+  - `BOOKSTACK_TOKEN_SECRET`
+  - `BOOKSTACK_URL` (defaults to `http://localhost:6875`)
+  - `GOOGLE_API_KEY` (for Google embeddings)
+  - `GOOGLE_EMBEDDING_MODEL` (optional; example: `embed-text-embedding-3`)
+
+Example .env file:
+```ini
+# .env (in repo root)
+BOOKSTACK_TOKEN_ID=your_token_id_here
+BOOKSTACK_TOKEN_SECRET=your_token_secret_here
+BOOKSTACK_URL=http://localhost:6875
+GOOGLE_API_KEY=YOUR_GOOGLE_API_KEY
+GOOGLE_EMBEDDING_MODEL=embed-text-embedding-3
+```
 
 Compatibility note:
 - Some packages (or transitive dependencies like `pypika`) may not be compatible with very new Python versions such as Python 3.14.
