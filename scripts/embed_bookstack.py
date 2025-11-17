@@ -204,8 +204,43 @@ def build_vector_store(persist_dir: str, collection_name: str, embedding_model: 
             logging.error("Failed to initialize GoogleGenerativeAIEmbeddings: %s", e)
             logging.error("Ensure your model name is valid and GOOGLE_API_KEY credentials are present. Try setting --google-embedding-model or env var GOOGLE_EMBEDDING_MODEL.")
             raise
-    vectordb = Chroma(persist_directory=persist_dir, collection_name=collection_name, embedding_function=embeddings)
-    return vectordb
+    try:
+        vectordb = Chroma(persist_directory=persist_dir, collection_name=collection_name, embedding_function=embeddings)
+        return vectordb
+    except Exception as e:
+        logging.warning('Chroma vector store initialization failed: %s', e)
+        if not use_dummy:
+            raise
+
+    # Fallback simple in-memory vector store (only enabled with --sample or use_dummy True)
+    class SimpleInMemoryVectorStore:
+        def __init__(self):
+            self.docs = []
+
+        def add_documents(self, docs: List[Document]):
+            for d in docs:
+                # Keep minimal representation
+                self.docs.append({'content': d.page_content, 'metadata': d.metadata})
+
+        def delete(self, where: Optional[dict] = None):
+            if not where:
+                self.docs = []
+                return
+            def keep(doc):
+                for k, v in where.items():
+                    if doc['metadata'].get(k) != v:
+                        return True
+                return False
+            self.docs = [d for d in self.docs if keep(d)]
+
+        def persist(self):
+            pass
+
+        def get_all(self):
+            return self.docs
+
+    logging.info('Using in-memory vector store fallback')
+    return SimpleInMemoryVectorStore()
 
 
 def embed_pages(client: BookStackClient, vectordb: Chroma, text_splitter: RecursiveCharacterTextSplitter, page_limit: int = 0):
