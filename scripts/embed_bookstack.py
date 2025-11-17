@@ -45,9 +45,9 @@ from tqdm import tqdm
 
 try:
     from langchain_google_genai import GoogleGenerativeAIEmbeddings
-    from langchain.text_splitter import RecursiveCharacterTextSplitter
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
     from langchain_chroma import Chroma
-    from langchain.schema import Document
+    from langchain_core.documents import Document
 except Exception:  # pragma: no cover - helpful messaging if packages are missing
     print("Missing required packages. Install requirements from scripts/requirements.txt")
     raise

@@ -192,7 +192,7 @@ You can run a small Flask server that listens for BookStack webhook events and r
 
 Example usage (local dev):
 ```bash
-python3 scripts/bookstack_webhook.py --token-id <ID> --token-secret <SECRET> --url http://localhost:6875 \
+python3 bookstack_webhook.py --token-id <ID> --token-secret <SECRET> --url http://localhost:6875 \
   --persist-dir ./chroma_db --collection bookstack_pages
 ```
 You can optionally pass `--use-dummy-embeddings` to avoid requiring remote embedding credentials during local development.
@@ -201,9 +201,9 @@ If you use `uv` and want to enforce the Python version and isolated deps (recomm
 
 ```bash
 # Ensure Python >= 3.11 is selected by uv and create a deterministic environment
-uv add --script scripts/bookstack_webhook.py 'Flask' 'requests' 'beautifulsoup4' 'tqdm' 'python-dotenv' 'chromadb' 'langchain-google-genai' 'langchain-chroma'
-uv lock --script scripts/bookstack_webhook.py
-uv run --script scripts/bookstack_webhook.py -- --token-id <ID> --token-secret <SECRET> --url http://localhost:6875 --persist-dir ./chroma_db --collection bookstack_pages
+uv add --script bookstack_webhook.py 'Flask' 'requests' 'beautifulsoup4' 'tqdm' 'python-dotenv' 'chromadb' 'langchain-google-genai' 'langchain-chroma'
+uv lock --script bookstack_webhook.py
+uv run --script bookstack_webhook.py -- --token-id <ID> --token-secret <SECRET> --url http://localhost:6875 --persist-dir ./chroma_db --collection bookstack_pages
 ```
 
 Notes:

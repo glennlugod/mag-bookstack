@@ -23,7 +23,7 @@ and re-index the affected page into the Chroma vector DB using the same logic
 as `scripts/embed_bookstack.py`.
 
 Usage (local dev):
-  python scripts/bookstack_webhook.py --host 0.0.0.0 --port 5000 --token-id <id> --token-secret <secret>
+  python bookstack_webhook.py --host 0.0.0.0 --port 5000 --token-id <id> --token-secret <secret>
 
 Environment:
   - BOOKSTACK_TOKEN_ID / BOOKSTACK_TOKEN_SECRET - fallback credentials for BookStack API
@@ -37,30 +37,22 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+from dotenv import load_dotenv
 # typing.Optional removed (not used in this module)
 
 from flask import Flask, request, jsonify
 
 from scripts.webhook_utils import find_page_id_from_payload, normalize_detail_from_payload
-try:
-    # import functions from embed_bookstack where possible
-    from embed_bookstack import (
-        BookStackClient,
-        build_vector_store,
-        html_to_text,
-        RecursiveCharacterTextSplitter,
-        Document,
-    )
-except Exception:
-    # fallback to direct imports if script is executed from repo root
-    from scripts.embed_bookstack import (
-        BookStackClient,
-        build_vector_store,
-        html_to_text,
-        RecursiveCharacterTextSplitter,
-        Document,
-    )
+from scripts.embed_bookstack import (
+    BookStackClient,
+    build_vector_store,
+    html_to_text,
+    RecursiveCharacterTextSplitter,
+    Document,
+)
 
+# Load environment variables from .env at repo root (if present)
+load_dotenv()
 
 app = Flask(__name__)
 
