@@ -8,6 +8,7 @@
 #   "langchain-google-genai",
 #   "chromadb",
 #   "python-dotenv",
+#   "asana",
 # ]
 # [tool.uv]
 # exclude-newer = "2025-01-01T00:00:00Z"
@@ -38,6 +39,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import re
 from typing import Dict, List, Optional, TypedDict
 from dotenv import load_dotenv
 
@@ -58,6 +60,70 @@ class State(TypedDict, total=False):
     query: str
     docs: List[Dict]
     answer: str
+    tool_result: str
+
+
+def initialize_asana_client():
+    """Initialize Asana API client with credentials from environment.
+    
+    Returns:
+        TasksApi: Asana Tasks API client, or None if credentials are missing.
+    """
+    asana_pat = os.environ.get('ASANA_PAT')
+    if not asana_pat:
+        logging.warning('ASANA_PAT environment variable not set; Asana tool will not be available')
+        return None
+    
+    try:
+        from asana import ApiClient, Configuration
+        config = Configuration()
+        config.access_token = asana_pat
+        client = ApiClient(config)
+        from asana.api import TasksApi
+        return TasksApi(client)
+    except Exception as e:
+        logging.warning('Failed to initialize Asana client: %s', e)
+        return None
+
+
+def create_asana_task(task_name: str, task_notes: str = '', project_name: str = None) -> str:
+    """Create a task in Asana.
+    
+    Args:
+        task_name: Name/title of the task to create
+        task_notes: Optional notes/description for the task
+        project_name: Optional project name filter (if not provided, uses ASANA_PROJECT_ID)
+    
+    Returns:
+        str: Success message with task GID, or error message
+    """
+    tasks_api = initialize_asana_client()
+    if not tasks_api:
+        return 'Error: Asana client not initialized. Ensure ASANA_PAT is set in environment.'
+    
+    workspace_id = os.environ.get('ASANA_WORKSPACE_ID')
+    project_id = os.environ.get('ASANA_PROJECT_ID')
+    
+    if not workspace_id or not project_id:
+        return 'Error: ASANA_WORKSPACE_ID and ASANA_PROJECT_ID must be set in environment.'
+    
+    try:
+        from asana.rest import ApiException
+        body = {
+            'data': {
+                'name': task_name,
+                'notes': task_notes,
+                'workspace': workspace_id,
+                'projects': [project_id]
+            }
+        }
+        new_task = tasks_api.create_task(body=body, opts={})
+        task_gid = new_task.get('gid') if isinstance(new_task, dict) else getattr(new_task, 'gid', 'unknown')
+        return f'Task created successfully! Task ID: {task_gid}'
+    except ApiException as e:
+        return f'Error creating Asana task: {e}'
+    except Exception as e:
+        return f'Unexpected error creating Asana task: {e}'
 
 
 def build_vector_store(persist_dir: str, collection_name: str, embedding_model: Optional[str] = None):
@@ -165,6 +231,27 @@ def build_langgraph_rag_agent(persist_dir: str, collection_name: str, top_k: int
             logging.error('Error in retrieve_node: %s', e)
             return {'docs': []}
 
+    def tool_node(state: State, runtime: Runtime) -> dict:
+        """Process tool calls from the LLM output.
+        
+        Looks for tool directives in the answer and processes them.
+        """
+        answer = state.get('answer') or ''
+        
+        # Check if the answer contains a request to create an Asana task
+        if not answer or 'CREATE_ASANA_TASK' not in answer:
+            return {'tool_result': ''}
+        
+        # Simple parser: look for CREATE_ASANA_TASK(name="...", notes="...")
+        match = re.search(r'CREATE_ASANA_TASK\(name=["\']([^"\']+)["\'](?:,\s*notes=["\']([^"\']*)["\'])?\)', answer)
+        if match:
+            task_name = match.group(1)
+            task_notes = match.group(2) or ''
+            result = create_asana_task(task_name, task_notes)
+            return {'tool_result': result}
+        
+        return {'tool_result': ''}
+
     def generate_node(state: State, runtime: Runtime) -> dict:
         docs = state.get('docs') or []
         q = state.get('query') or ''
@@ -174,9 +261,18 @@ def build_langgraph_rag_agent(persist_dir: str, collection_name: str, top_k: int
         if llm is None:
             return {'answer': ''}
 
-        # Construct a simple prompt with docs as context
+        # Construct a prompt that includes tool-calling capability
         context = '\n\n'.join([f"{d.get('metadata', {}).get('page_name', '')}: {d.get('text', '')}" for d in docs])
-        prompt = f"Use the following context extracted from BookStack docs:\n\n{context}\n\nQuestion: {q}\nAnswer:"
+        prompt = f"""Use the following context extracted from BookStack docs:
+
+{context}
+
+Question: {q}
+
+If the user is asking to create a task in Asana, include the following in your response:
+CREATE_ASANA_TASK(name="<task name>", notes="<task description>")
+
+Answer:"""
         try:
             out = llm.invoke(prompt)
             # `GoogleGenerativeAI` wrapper returns a string or Document-like; coerce to str
@@ -185,14 +281,43 @@ def build_langgraph_rag_agent(persist_dir: str, collection_name: str, top_k: int
             logging.error('LLM generation failed: %s', e)
             return {'answer': ''}
 
+    # Conditional routing function: decide whether to call tool or finish
+    def should_call_tool(state: State) -> str:
+        """Determine if the response contains a tool directive.
+        
+        Returns:
+            'tool' if CREATE_ASANA_TASK directive found, else 'finish'
+        """
+        answer = state.get('answer') or ''
+        if 'CREATE_ASANA_TASK' in answer:
+            return 'tool'
+        return 'finish'
+
+    def finish_node(state: State, runtime: Runtime) -> dict:
+        """Final node that just returns the current state."""
+        return state
+
     # Build LangGraph state graph
     graph = StateGraph(state_schema=State)
     graph.add_node('retrieve', retrieve_node)
     graph.add_node('generate', generate_node)
-    # Explicitly wire retrieve -> generate so the graph executes generation after retrieval
+    graph.add_node('tool', tool_node)
+    graph.add_node('finish', finish_node)
+    # Wire retrieve -> generate (always)
     graph.add_edge('retrieve', 'generate')
+    # Conditional routing: generate -> tool (if tool directive present) or to finish (otherwise)
+    graph.add_conditional_edges(
+        'generate',
+        should_call_tool,
+        {
+            'tool': 'tool',
+            'finish': 'finish'
+        }
+    )
+    # Tool node -> finish
+    graph.add_edge('tool', 'finish')
     graph.set_entry_point('retrieve')
-    graph.set_finish_point('generate')
+    graph.set_finish_point('finish')
 
     compiled = graph.compile()
 
@@ -205,6 +330,10 @@ def build_langgraph_rag_agent(persist_dir: str, collection_name: str, top_k: int
 
         def invoke(self, query: str):
             return self.compiled.invoke({'query': query})
+
+        def create_task(self, task_name: str, task_notes: str = '', project_name: str = None):
+            """Create an Asana task. This can be called directly or automatically from the agent."""
+            return create_asana_task(task_name, task_notes, project_name)
 
         def similarity_search(self, query: str, k: int = 3):
             # For direct access to vectordb retrieval without running the graph
