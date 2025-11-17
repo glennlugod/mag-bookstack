@@ -15,11 +15,11 @@ Using uv to run the population script (recommended):
 uv run scripts/populate_bookstack.py -- --token-id <ID> --token-secret <SECRET>
 ```
 
-If you don't use uv, install requirements and run with Python 3:
+If you don't use uv, install requirements and run with Python 3.11:
 
 ```bash
-python3 -m pip install -r scripts/requirements.txt
-python3 scripts/populate_bookstack.py --token-id <ID> --token-secret <SECRET>
+python3.11 -m pip install -r scripts/requirements.txt
+python3.11 scripts/populate_bookstack.py --token-id <ID> --token-secret <SECRET>
 ```
 
 The default BookStack instance is exposed at http://localhost:6875

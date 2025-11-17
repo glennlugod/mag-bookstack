@@ -1,4 +1,20 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.11,<3.12"
+# dependencies = [
+#   "Flask",
+#   "requests",
+#   "beautifulsoup4",
+#   "langchain",
+#   "chromadb",
+#   "tqdm",
+#   "langchain-google-genai",
+#   "python-dotenv",
+#   "langchain-chroma>=0.0.6",
+# ]
+# [tool.uv]
+# exclude-newer = "2025-01-01T00:00:00Z"
+# ///
 """
 bookstack_webhook.py
 
@@ -19,10 +35,8 @@ This script reuses BookStackClient, build_vector_store and html_to_text from emb
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import os
-import sys
 # typing.Optional removed (not used in this module)
 
 from flask import Flask, request, jsonify

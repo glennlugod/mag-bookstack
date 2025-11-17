@@ -147,30 +147,30 @@ GOOGLE_EMBEDDING_MODEL=embed-text-embedding-3
 ```
 
 Compatibility note:
-- Some packages (or transitive dependencies like `pypika`) may not be compatible with very new Python versions such as Python 3.14.
-  The script is constrained to Python >=3.12 and <3.14 so `uv` will attempt to use a Python 3.12 or 3.13 runtime by default to avoid build issues.
+- Some packages (or transitive dependencies like `pypika`) may not be compatible with newer Python versions.
+  The script is constrained to Python >=3.11 and <3.12 so `uv` will attempt to use a Python 3.11 runtime by default to avoid build issues.
   If `uv lock --script scripts/embed_bookstack.py` still fails during build, try adjusting the pinned package versions or running under a supported Python version.
 
-How to run `uv lock` if you have Python 3.14 by default:
+How to run `uv lock` if you have a different Python version by default:
 
-- Option 1: Use `pyenv` or `asdf` to install and select a local Python version (3.12 or 3.13), for example with `pyenv`:
+- Option 1: Use `pyenv` or `asdf` to install and select a local Python version (3.11), for example with `pyenv`:
 
 ```bash
-# Install Python 3.13 (if not installed) and set local project version
-pyenv install 3.13.10
-pyenv local 3.13.10
+# Install Python 3.11 (if not installed) and set local project version
+pyenv install 3.11.10
+pyenv local 3.11.10
 uv lock --script scripts/embed_bookstack.py
 ```
 
 - Option 2: Create a dedicated virtualenv using a compatible interpreter and run `uv` from inside it:
 
 ```bash
-python3.13 -m venv .venv
+python3.11 -m venv .venv
 source .venv/bin/activate
 uv lock --script scripts/embed_bookstack.py
 ```
 
-If you're unable to change the Python version on your machine or prefer to continue with Python 3.14, consider passing a compatible `chromadb` and `pypika` version in `scripts/requirements.txt`, but note that this can require careful dependency resolution.
+If you're unable to change the Python version on your machine and cannot use Python 3.11, consider pinning compatible package versions or using a container that provides Python 3.11; however, this can require careful dependency resolution.
 - `GOOGLE_API_KEY` or application credentials must be available in the environment for Google Generative AI embedding usage
 - `--google-embedding-model` can be set to choose a particular embedding model supported by LangChain’s GoogleGenerativeAIEmbeddings wrapper (optional)
 
@@ -196,6 +196,15 @@ python3 scripts/bookstack_webhook.py --token-id <ID> --token-secret <SECRET> --u
   --persist-dir ./chroma_db --collection bookstack_pages
 ```
 You can optionally pass `--use-dummy-embeddings` to avoid requiring remote embedding credentials during local development.
+
+If you use `uv` and want to enforce the Python version and isolated deps (recommended), run:
+
+```bash
+# Ensure Python >= 3.11 is selected by uv and create a deterministic environment
+uv add --script scripts/bookstack_webhook.py 'Flask' 'requests' 'beautifulsoup4' 'tqdm' 'python-dotenv' 'chromadb' 'langchain-google-genai' 'langchain-chroma'
+uv lock --script scripts/bookstack_webhook.py
+uv run --script scripts/bookstack_webhook.py -- --token-id <ID> --token-secret <SECRET> --url http://localhost:6875 --persist-dir ./chroma_db --collection bookstack_pages
+```
 
 Notes:
 - Add an optional environment variable `BOOKSTACK_WEBHOOK_SECRET` and configure your BookStack webhook to send the same secret in header `X-BOOKSTACK-WEBHOOK-SECRET` to ensure requests are authenticated.
