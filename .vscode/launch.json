@@ -11,8 +11,7 @@
             "program": "${file}",
             "cwd": "${workspaceFolder}",
             "console": "integratedTerminal",
-            "args": "${command:pickArgs}"
-            ,
+            "args": "${command:pickArgs}",
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"
             }
