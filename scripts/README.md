@@ -186,3 +186,45 @@ Notes:
 Outputs:
 - Embeddings are persisted into `--persist-dir` in a Chroma collection named `--collection`
 
+Webhook Server (auto re-index on page create/update)
+-----------------------------------------------
+You can run a small Flask server that listens for BookStack webhook events and re-indexes the affected page automatically.
+
+Example usage (local dev):
+```bash
+python3 scripts/bookstack_webhook.py --token-id <ID> --token-secret <SECRET> --url http://localhost:6875 \
+  --persist-dir ./chroma_db --collection bookstack_pages
+```
+You can optionally pass `--use-dummy-embeddings` to avoid requiring remote embedding credentials during local development.
+
+Notes:
+- Add an optional environment variable `BOOKSTACK_WEBHOOK_SECRET` and configure your BookStack webhook to send the same secret in header `X-BOOKSTACK-WEBHOOK-SECRET` to ensure requests are authenticated.
+- The webhook server attempts to delete any previously-stored chunks for a page (metadata filter: `page_id`) before re-adding the new chunks.
+- Use `--no-persist` for in-memory operation useful for testing.
+
+Example curl request (emulating BookStack webhook):
+```bash
+curl -X POST http://localhost:5000/webhook/bookstack \
+  -H "Content-Type: application/json" \
+  -H "X-BOOKSTACK-WEBHOOK-SECRET: $BOOKSTACK_WEBHOOK_SECRET" \
+  -d '{"page_id": 123}'
+```
+
+The webhook supports BookStack's typical payload shape (example below), which sends a `related_item` object. The webhook will read the page id from `related_item.id` if `page_id` isn't present in the payload:
+
+```
+{
+    "event": "page_update",
+    "url": "https://bookstack.local/books/my-awesome-book/page/my-wonderful-updated-page",
+    "related_item": {
+        "id": 2432,
+        "book_id": 13,
+        "name": "My wonderful updated page",
+        "slug": "my-wonderful-updated-page"
+    }
+}
+```
+
+If your webhook includes HTML content in the payload (e.g. `related_item.html` or `related_item.current_revision.html`) the webhook can index this content without requiring API credentials. Otherwise, API credentials will be used to fetch the page HTML.
+
+
